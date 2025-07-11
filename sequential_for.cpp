@@ -266,7 +266,7 @@ int main(int argc, char* argv[]) {
     iterative_marching_cubes(height_map_2d, triangles, -5, -5, -5, 5, 5, 5, precision);
     auto t_f = chrono::high_resolution_clock::now();
     chrono::duration<double> t = t_f - t_0;
-    cout << "Secuencial tiempo: " << chrono::duration_cast<chrono::seconds>(t).count() << endl;
+    cout << "Secuencial tiempo: " << chrono::duration_cast<chrono::microseconds>(t).count() << endl;
 
     return 0;
 }
