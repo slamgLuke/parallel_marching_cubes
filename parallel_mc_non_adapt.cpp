@@ -1,9 +1,8 @@
 
+#include <omp.h>
 #include <stdio.h>
 
-#include <algorithm>
 #include <array>
-#include <chrono>
 #include <cmath>
 #include <fstream>
 #include <iostream>
@@ -429,57 +428,82 @@ double f(double x, double y, double z) {
 // Number of additional sample points to check when all corners have same sign
 const int N_SAMPLES_PER_DIM = 16;
 
-unsigned long long next_power_of_two(unsigned long long n) {
-    if (n == 0) return 1;
-    n--;
-    n |= n >> 1;
-    n |= n >> 2;
-    n |= n >> 4;
-    n |= n >> 8;
-    n |= n >> 16;
-    n |= n >> 32;
-    n++;
-    return n;
+// Verifica si hay superficie en la celda
+
+bool should_subdivide(double (*func)(double, double, double),
+                      double x_min, double y_min, double z_min,
+                      double x_max, double y_max, double z_max,
+                      double precision, double iso_level = 0.0) {
+    // Stop only if cell is smaller than precision
+    if ((x_max - x_min) <= precision &&
+        (y_max - y_min) <= precision &&
+        (z_max - z_min) <= precision) {
+        return false;
+    }
+
+    return true;
 }
 
-// Iterative Marching Cubes paralelizado
-void iterative_marching_cubes(double (*func)(double, double, double),
-                              vector<Triangle> &triangles,
-                              double x_min, double y_min, double z_min,
-                              double x_max, double y_max, double z_max,
-                              double precision, double iso_level = 0.0) {
-    double required_res_x = (x_max - x_min) / precision;
-    double required_res_y = (y_max - y_min) / precision;
-    double required_res_z = (z_max - z_min) / precision;
+// Adaptative Marching Cubes paralelizado
+void adaptive_marching_cubes(double (*func)(double, double, double),
+                             vector<Triangle> &triangles,
+                             double x_min, double y_min, double z_min,
+                             double x_max, double y_max, double z_max,
+                             double precision, double iso_level = 0.0, int depth = 0) {
+    if (should_subdivide(func, x_min, y_min, z_min, x_max, y_max, z_max, precision, iso_level)) {
+        double x_mid = 0.5 * (x_min + x_max);
+        double y_mid = 0.5 * (y_min + y_max);
+        double z_mid = 0.5 * (z_min + z_max);
 
-    double max_required_res = std::max({required_res_x, required_res_y, required_res_z});
+        const int MAX_PARALLEL_DEPTH = 8;
+        bool parallel = depth < MAX_PARALLEL_DEPTH;
 
-    const unsigned long long grid_dim = next_power_of_two(static_cast<unsigned long long>(ceil(max_required_res)));
-    const long long nx = grid_dim;
-    const long long ny = grid_dim;
-    const long long nz = grid_dim;
+        if (parallel) {
+#pragma omp taskgroup
+            {
+#pragma omp task shared(triangles)
+                adaptive_marching_cubes(func, triangles, x_min, y_min, z_min, x_mid, y_mid, z_mid, precision, iso_level, depth + 1);
 
-    const double cell_size_x = (x_max - x_min) / nx;
-    const double cell_size_y = (y_max - y_min) / ny;
-    const double cell_size_z = (z_max - z_min) / nz;
+#pragma omp task shared(triangles)
+                adaptive_marching_cubes(func, triangles, x_mid, y_min, z_min, x_max, y_mid, z_mid, precision, iso_level, depth + 1);
 
-    for (long long k = 0; k < nz; ++k) {
-        for (long long j = 0; j < ny; ++j) {
-            for (long long i = 0; i < nx; ++i) {
-                double x = x_min + i * cell_size_x;
-                double y = y_min + j * cell_size_y;
-                double z = z_min + k * cell_size_z;
+#pragma omp task shared(triangles)
+                adaptive_marching_cubes(func, triangles, x_min, y_mid, z_min, x_mid, y_max, z_mid, precision, iso_level, depth + 1);
 
-                GridCell grid = create_grid_cell(func, x, y, z,
-                                                 x + cell_size_x, y + cell_size_y, z + cell_size_z);
+#pragma omp task shared(triangles)
+                adaptive_marching_cubes(func, triangles, x_mid, y_mid, z_min, x_max, y_max, z_mid, precision, iso_level, depth + 1);
 
-                Triangle tris[5];
-                int n = make_polygon(grid, tris, iso_level);
+#pragma omp task shared(triangles)
+                adaptive_marching_cubes(func, triangles, x_min, y_min, z_mid, x_mid, y_mid, z_max, precision, iso_level, depth + 1);
 
-                if (n > 0) {
-                    triangles.insert(triangles.end(), tris, tris + n);
-                }
+#pragma omp task shared(triangles)
+                adaptive_marching_cubes(func, triangles, x_mid, y_min, z_mid, x_max, y_mid, z_max, precision, iso_level, depth + 1);
+
+#pragma omp task shared(triangles)
+                adaptive_marching_cubes(func, triangles, x_min, y_mid, z_mid, x_mid, y_max, z_max, precision, iso_level, depth + 1);
+
+#pragma omp task shared(triangles)
+                adaptive_marching_cubes(func, triangles, x_mid, y_mid, z_mid, x_max, y_max, z_max, precision, iso_level, depth + 1);
             }
+        } else {
+            // cout<<"En sec"<<endl;
+            adaptive_marching_cubes(func, triangles, x_min, y_min, z_min, x_mid, y_mid, z_mid, precision, iso_level, depth + 1);
+            adaptive_marching_cubes(func, triangles, x_mid, y_min, z_min, x_max, y_mid, z_mid, precision, iso_level, depth + 1);
+            adaptive_marching_cubes(func, triangles, x_min, y_mid, z_min, x_mid, y_max, z_mid, precision, iso_level, depth + 1);
+            adaptive_marching_cubes(func, triangles, x_mid, y_mid, z_min, x_max, y_max, z_mid, precision, iso_level, depth + 1);
+            adaptive_marching_cubes(func, triangles, x_min, y_min, z_mid, x_mid, y_mid, z_max, precision, iso_level, depth + 1);
+            adaptive_marching_cubes(func, triangles, x_mid, y_min, z_mid, x_max, y_mid, z_max, precision, iso_level, depth + 1);
+            adaptive_marching_cubes(func, triangles, x_min, y_mid, z_mid, x_mid, y_max, z_max, precision, iso_level, depth + 1);
+            adaptive_marching_cubes(func, triangles, x_mid, y_mid, z_mid, x_max, y_max, z_max, precision, iso_level, depth + 1);
+        }
+    } else {
+        GridCell grid = create_grid_cell(func, x_min, y_min, z_min, x_max, y_max, z_max);
+        Triangle tris[5];
+        int n = make_polygon(grid, tris, iso_level);
+
+        if (n > 0) {
+#pragma omp critical
+            triangles.insert(triangles.end(), tris, tris + n);
         }
     }
 }
@@ -490,9 +514,13 @@ void draw_surface(double (*func)(double, double, double), const string &output_f
     vector<Triangle> triangles;
     double iso_level = 0.0;  // Level set for the surface (0 is border)
 
-    // Use iterative
-    iterative_marching_cubes(func, triangles, x_min, y_min, z_min,
-                             x_max, y_max, z_max, precision, iso_level);
+// Use adaptive subdivision
+#pragma omp parallel
+    {
+#pragma omp single
+        adaptive_marching_cubes(func, triangles, x_min, y_min, z_min,
+                                x_max, y_max, z_max, precision, iso_level);
+    }
 
     // Write triangles to PLY file
     ofstream file(output_filename);
@@ -538,15 +566,18 @@ double height_map_2d(double x, double y, double z) {
 }
 
 int main() {
-    cout << "Sequential Iterative Marching Cubes Implementation" << endl;
+    cout << "Recursive Non-Adaptive Marching Cubes Implementation" << endl;
     double precision = 10.0 / 512.0;
     cout << "Con precision: " << precision << endl;
-    auto t_0 = chrono::high_resolution_clock::now();
-    vector<Triangle> triangles;
-    iterative_marching_cubes(height_map_2d, triangles, -5, -5, -5, 5, 5, 5, precision);
-    auto t_f = chrono::high_resolution_clock::now();
-    chrono::duration<double> t = t_f - t_0;
-    cout << "Secuencial tiempo: " << chrono::duration_cast<chrono::seconds>(t).count() << endl;
+    int threads[] = {2, 4, 8, 16, 32, 64, 128};
+    for (int t = 0; t < 7; t++) {
+        omp_set_num_threads(threads[t]);
+        double t_f;
+        double t_0 = omp_get_wtime();
+        draw_surface(height_map_2d, "parallel_height_map.ply", -5, -5, -5, 5, 5, 5, precision);
+        t_f = omp_get_wtime() - t_0;
+        cout << "Con " << threads[t] << " threads, tiempo: " << t_f << endl;
+    }
 
     return 0;
 }

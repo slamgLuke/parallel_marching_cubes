@@ -1,9 +1,9 @@
 
+#include <omp.h>
 #include <stdio.h>
 
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cmath>
 #include <fstream>
 #include <iostream>
@@ -463,24 +463,41 @@ void iterative_marching_cubes(double (*func)(double, double, double),
     const double cell_size_y = (y_max - y_min) / ny;
     const double cell_size_z = (z_max - z_min) / nz;
 
-    for (long long k = 0; k < nz; ++k) {
-        for (long long j = 0; j < ny; ++j) {
-            for (long long i = 0; i < nx; ++i) {
-                double x = x_min + i * cell_size_x;
-                double y = y_min + j * cell_size_y;
-                double z = z_min + k * cell_size_z;
+    vector<vector<Triangle>> local_triangles_per_thread;
 
-                GridCell grid = create_grid_cell(func, x, y, z,
-                                                 x + cell_size_x, y + cell_size_y, z + cell_size_z);
+#pragma omp parallel
+    {
+        vector<Triangle> local_triangles;
 
-                Triangle tris[5];
-                int n = make_polygon(grid, tris, iso_level);
+#pragma omp for collapse(3) schedule(dynamic)
+        for (long long k = 0; k < nz; ++k) {
+            for (long long j = 0; j < ny; ++j) {
+                for (long long i = 0; i < nx; ++i) {
+                    double x = x_min + i * cell_size_x;
+                    double y = y_min + j * cell_size_y;
+                    double z = z_min + k * cell_size_z;
 
-                if (n > 0) {
-                    triangles.insert(triangles.end(), tris, tris + n);
+                    GridCell grid = create_grid_cell(func, x, y, z,
+                                                     x + cell_size_x, y + cell_size_y, z + cell_size_z);
+
+                    Triangle tris[5];
+                    int n = make_polygon(grid, tris, iso_level);
+
+                    if (n > 0) {
+                        local_triangles.insert(local_triangles.end(), tris, tris + n);
+                    }
                 }
             }
         }
+
+#pragma omp critical
+        {
+            local_triangles_per_thread.push_back(std::move(local_triangles));
+        }
+    }
+
+    for (const auto &local_triangles : local_triangles_per_thread) {
+        triangles.insert(triangles.end(), local_triangles.begin(), local_triangles.end());
     }
 }
 
@@ -538,15 +555,18 @@ double height_map_2d(double x, double y, double z) {
 }
 
 int main() {
-    cout << "Sequential Iterative Marching Cubes Implementation" << endl;
+    cout << "Iterative Marching Cubes Implementation" << endl;
     double precision = 10.0 / 512.0;
     cout << "Con precision: " << precision << endl;
-    auto t_0 = chrono::high_resolution_clock::now();
-    vector<Triangle> triangles;
-    iterative_marching_cubes(height_map_2d, triangles, -5, -5, -5, 5, 5, 5, precision);
-    auto t_f = chrono::high_resolution_clock::now();
-    chrono::duration<double> t = t_f - t_0;
-    cout << "Secuencial tiempo: " << chrono::duration_cast<chrono::seconds>(t).count() << endl;
+    int threads[] = {2, 4, 8, 16, 32, 64, 128};
+    for (int t = 0; t < 7; t++) {
+        omp_set_num_threads(threads[t]);
+        double t_f;
+        double t_0 = omp_get_wtime();
+        draw_surface(height_map_2d, "parallel_height_map.ply", -5, -5, -5, 5, 5, 5, precision);
+        t_f = omp_get_wtime() - t_0;
+        cout << "Con " << threads[t] << " threads, tiempo: " << t_f << endl;
+    }
 
     return 0;
 }
