@@ -3,7 +3,7 @@
 # Compiler and flags
 CXX = g++
 # CXXFLAGS = -std=c++11 -O3 -Wall -Wextra
-CXXFLAGS = -std=c++11
+CXXFLAGS = -std=c++17
 OMPFLAGS = -fopenmp
 
 # Target executables
@@ -14,7 +14,7 @@ all: $(TARGETS)
 
 # Get OpenMP threads count
 get_omp_threads: get_omp_threads.cpp
-	$(CXX) $(CXXFLAGS) -o $@ $<
+	$(CXX) $(CXXFLAGS) $(OMPFLAGS) -o $@ $<
 
 # Sequential implementation
 sequential_for: sequential_for.cpp tables.hpp
