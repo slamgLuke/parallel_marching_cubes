@@ -5,3 +5,5 @@
 #SBATCH --cpus-per-task 48 # number of CPUs per task
 #SBATCH --account=investigacion1
 #SBATCH -o log_get_omp_threads.out # output file
+
+./get_omp_threads
