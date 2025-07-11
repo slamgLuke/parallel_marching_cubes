@@ -7,8 +7,13 @@
 #SBATCH -o log_sequential_for.out # output file
 
 ./sequential_for 32
+echo "\n"
 ./sequential_for 64
+echo "\n"
 ./sequential_for 128
+echo "\n"
 ./sequential_for 256
+echo "\n"
 ./sequential_for 512
+echo "\n"
 ./sequential_for 1024

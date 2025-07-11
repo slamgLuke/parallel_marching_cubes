@@ -7,8 +7,13 @@
 #SBATCH -o log_parallel_mc_non_adapt.out # output file
 
 ./parallel_mc_non_adapt 32
+echo "\n"
 ./parallel_mc_non_adapt 64
+echo "\n"
 ./parallel_mc_non_adapt 128
+echo "\n"
 ./parallel_mc_non_adapt 256
+echo "\n"
 ./parallel_mc_non_adapt 512
+echo "\n"
 ./parallel_mc_non_adapt 1024

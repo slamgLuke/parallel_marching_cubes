@@ -7,10 +7,14 @@ CXXFLAGS = -std=c++11
 OMPFLAGS = -fopenmp
 
 # Target executables
-TARGETS = sequential_for parallel_mc_for parallel_mc_non_adapt
+TARGETS = get_omp_threads sequential_for parallel_mc_for parallel_mc_non_adapt
 
 # Default target - build all executables
 all: $(TARGETS)
+
+# Get OpenMP threads count
+get_omp_threads: get_omp_threads.cpp
+	$(CXX) $(CXXFLAGS) -o $@ $<
 
 # Sequential implementation
 sequential_for: sequential_for.cpp tables.hpp

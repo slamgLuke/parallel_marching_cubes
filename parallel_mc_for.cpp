@@ -278,8 +278,8 @@ int main(int argc, char* argv[]) {
     double precision = 10.0 / n;
     cout << "Using n = " << n << endl;
     cout << "Con precision: " << precision << endl;
-    int threads[] = {2, 4, 8, 16, 32, 64, 128};
-    for (int t = 0; t < 7; t++) {
+    int threads[] = {1, 2, 4, 8, 16, 32, 64, 128};
+    for (int t = 0; t < 8; t++) {
         omp_set_num_threads(threads[t]);
         double t_f;
         double t_0 = omp_get_wtime();

@@ -7,8 +7,13 @@
 #SBATCH -o log_parallel_mc_for.out # output file
 
 ./parallel_mc_for 32
+echo "\n"
 ./parallel_mc_for 64
+echo "\n"
 ./parallel_mc_for 128
+echo "\n"
 ./parallel_mc_for 256
+echo "\n"
 ./parallel_mc_for 512
+echo "\n"
 ./parallel_mc_for 1024
