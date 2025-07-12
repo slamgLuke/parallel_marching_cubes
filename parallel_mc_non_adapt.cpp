@@ -8,6 +8,7 @@
 #include <iostream>
 #include <unordered_map>
 #include <vector>
+
 #include "tables.hpp"
 using namespace std;
 
@@ -18,6 +19,9 @@ struct Point {
 struct Triangle {
     Point p[3];
 };
+
+#pragma omp declare reduction(vec_cat : std::vector<Triangle> : omp_out.insert(omp_out.end(), omp_in.begin(), omp_in.end())) \
+    initializer(omp_priv = omp_orig)
 
 struct GridCell {
     Point p[8];
@@ -150,11 +154,10 @@ bool should_subdivide(double (*func)(double, double, double),
 }
 
 // Adaptative Marching Cubes paralelizado
-void adaptive_marching_cubes(double (*func)(double, double, double),
-                             vector<Triangle> &triangles,
-                             double x_min, double y_min, double z_min,
-                             double x_max, double y_max, double z_max,
-                             double precision, double iso_level = 0.0, int depth = 0) {
+vector<Triangle> adaptive_marching_cubes(double (*func)(double, double, double),
+                                         double x_min, double y_min, double z_min,
+                                         double x_max, double y_max, double z_max,
+                                         double precision, double iso_level = 0.0, int depth = 0) {
     if (should_subdivide(func, x_min, y_min, z_min, x_max, y_max, z_max, precision, iso_level)) {
         double x_mid = 0.5 * (x_min + x_max);
         double y_mid = 0.5 * (y_min + y_max);
@@ -163,54 +166,103 @@ void adaptive_marching_cubes(double (*func)(double, double, double),
         const int MAX_PARALLEL_DEPTH = 8;
         bool parallel = depth < MAX_PARALLEL_DEPTH;
 
+        vector<Triangle> current_triangles;
+
         if (parallel) {
-#pragma omp taskgroup
+#pragma omp taskgroup task_reduction(vec_cat : current_triangles)
             {
-#pragma omp task shared(triangles)
-                adaptive_marching_cubes(func, triangles, x_min, y_min, z_min, x_mid, y_mid, z_mid, precision, iso_level, depth + 1);
+#pragma omp task in_reduction(vec_cat : current_triangles)
+                {
+                    auto tris = adaptive_marching_cubes(func, x_min, y_min, z_min, x_mid, y_mid, z_mid, precision, iso_level, depth + 1);
+                    current_triangles.insert(current_triangles.end(), tris.begin(), tris.end());
+                }
 
-#pragma omp task shared(triangles)
-                adaptive_marching_cubes(func, triangles, x_mid, y_min, z_min, x_max, y_mid, z_mid, precision, iso_level, depth + 1);
+#pragma omp task in_reduction(vec_cat : current_triangles)
+                {
+                    auto tris = adaptive_marching_cubes(func, x_mid, y_min, z_min, x_max, y_mid, z_mid, precision, iso_level, depth + 1);
+                    current_triangles.insert(current_triangles.end(), tris.begin(), tris.end());
+                }
 
-#pragma omp task shared(triangles)
-                adaptive_marching_cubes(func, triangles, x_min, y_mid, z_min, x_mid, y_max, z_mid, precision, iso_level, depth + 1);
+#pragma omp task in_reduction(vec_cat : current_triangles)
+                {
+                    auto tris = adaptive_marching_cubes(func, x_min, y_mid, z_min, x_mid, y_max, z_mid, precision, iso_level, depth + 1);
+                    current_triangles.insert(current_triangles.end(), tris.begin(), tris.end());
+                }
 
-#pragma omp task shared(triangles)
-                adaptive_marching_cubes(func, triangles, x_mid, y_mid, z_min, x_max, y_max, z_mid, precision, iso_level, depth + 1);
+#pragma omp task in_reduction(vec_cat : current_triangles)
+                {
+                    auto tris = adaptive_marching_cubes(func, x_mid, y_mid, z_min, x_max, y_max, z_mid, precision, iso_level, depth + 1);
+                    current_triangles.insert(current_triangles.end(), tris.begin(), tris.end());
+                }
 
-#pragma omp task shared(triangles)
-                adaptive_marching_cubes(func, triangles, x_min, y_min, z_mid, x_mid, y_mid, z_max, precision, iso_level, depth + 1);
+#pragma omp task in_reduction(vec_cat : current_triangles)
+                {
+                    auto tris = adaptive_marching_cubes(func, x_min, y_min, z_mid, x_mid, y_mid, z_max, precision, iso_level, depth + 1);
+                    current_triangles.insert(current_triangles.end(), tris.begin(), tris.end());
+                }
 
-#pragma omp task shared(triangles)
-                adaptive_marching_cubes(func, triangles, x_mid, y_min, z_mid, x_max, y_mid, z_max, precision, iso_level, depth + 1);
+#pragma omp task in_reduction(vec_cat : current_triangles)
+                {
+                    auto tris = adaptive_marching_cubes(func, x_mid, y_min, z_mid, x_max, y_mid, z_max, precision, iso_level, depth + 1);
+                    current_triangles.insert(current_triangles.end(), tris.begin(), tris.end());
+                }
 
-#pragma omp task shared(triangles)
-                adaptive_marching_cubes(func, triangles, x_min, y_mid, z_mid, x_mid, y_max, z_max, precision, iso_level, depth + 1);
+#pragma omp task in_reduction(vec_cat : current_triangles)
+                {
+                    auto tris = adaptive_marching_cubes(func, x_min, y_mid, z_mid, x_mid, y_max, z_max, precision, iso_level, depth + 1);
+                    current_triangles.insert(current_triangles.end(), tris.begin(), tris.end());
+                }
 
-#pragma omp task shared(triangles)
-                adaptive_marching_cubes(func, triangles, x_mid, y_mid, z_mid, x_max, y_max, z_max, precision, iso_level, depth + 1);
+#pragma omp task in_reduction(vec_cat : current_triangles)
+                {
+                    auto tris = adaptive_marching_cubes(func, x_mid, y_mid, z_mid, x_max, y_max, z_max, precision, iso_level, depth + 1);
+                    current_triangles.insert(current_triangles.end(), tris.begin(), tris.end());
+                }
             }
+            return current_triangles;
+
         } else {
             // cout<<"En sec"<<endl;
-            adaptive_marching_cubes(func, triangles, x_min, y_min, z_min, x_mid, y_mid, z_mid, precision, iso_level, depth + 1);
-            adaptive_marching_cubes(func, triangles, x_mid, y_min, z_min, x_max, y_mid, z_mid, precision, iso_level, depth + 1);
-            adaptive_marching_cubes(func, triangles, x_min, y_mid, z_min, x_mid, y_max, z_mid, precision, iso_level, depth + 1);
-            adaptive_marching_cubes(func, triangles, x_mid, y_mid, z_min, x_max, y_max, z_mid, precision, iso_level, depth + 1);
-            adaptive_marching_cubes(func, triangles, x_min, y_min, z_mid, x_mid, y_mid, z_max, precision, iso_level, depth + 1);
-            adaptive_marching_cubes(func, triangles, x_mid, y_min, z_mid, x_max, y_mid, z_max, precision, iso_level, depth + 1);
-            adaptive_marching_cubes(func, triangles, x_min, y_mid, z_mid, x_mid, y_max, z_max, precision, iso_level, depth + 1);
-            adaptive_marching_cubes(func, triangles, x_mid, y_mid, z_mid, x_max, y_max, z_max, precision, iso_level, depth + 1);
-        }
-    } else {
-        GridCell grid = create_grid_cell(func, x_min, y_min, z_min, x_max, y_max, z_max);
-        Triangle tris[5];
-        int n = make_polygon(grid, tris, iso_level);
+            auto tris1 = adaptive_marching_cubes(func, x_min, y_min, z_min, x_mid, y_mid, z_mid, precision, iso_level, depth + 1);
+            auto tris2 = adaptive_marching_cubes(func, x_mid, y_min, z_min, x_max, y_mid, z_mid, precision, iso_level, depth + 1);
+            auto tris3 = adaptive_marching_cubes(func, x_min, y_mid, z_min, x_mid, y_max, z_mid, precision, iso_level, depth + 1);
+            auto tris4 = adaptive_marching_cubes(func, x_mid, y_mid, z_min, x_max, y_max, z_mid, precision, iso_level, depth + 1);
+            auto tris5 = adaptive_marching_cubes(func, x_min, y_min, z_mid, x_mid, y_mid, z_max, precision, iso_level, depth + 1);
+            auto tris6 = adaptive_marching_cubes(func, x_mid, y_min, z_mid, x_max, y_mid, z_max, precision, iso_level, depth + 1);
+            auto tris7 = adaptive_marching_cubes(func, x_min, y_mid, z_mid, x_mid, y_max, z_max, precision, iso_level, depth + 1);
+            auto tris8 = adaptive_marching_cubes(func, x_mid, y_mid, z_mid, x_max, y_max, z_max, precision, iso_level, depth + 1);
 
-        if (n > 0) {
-#pragma omp critical
-            triangles.insert(triangles.end(), tris, tris + n);
+            current_triangles.insert(current_triangles.end(), tris1.begin(), tris1.end());
+            current_triangles.insert(current_triangles.end(), tris2.begin(), tris2.end());
+            current_triangles.insert(current_triangles.end(), tris3.begin(), tris3.end());
+            current_triangles.insert(current_triangles.end(), tris4.begin(), tris4.end());
+            current_triangles.insert(current_triangles.end(), tris5.begin(), tris5.end());
+            current_triangles.insert(current_triangles.end(), tris6.begin(), tris6.end());
+            current_triangles.insert(current_triangles.end(), tris7.begin(), tris7.end());
+            current_triangles.insert(current_triangles.end(), tris8.begin(), tris8.end());
         }
     }
+
+    GridCell grid = create_grid_cell(func, x_min, y_min, z_min, x_max, y_max, z_max);
+    Triangle tris[5];
+    int n = make_polygon(grid, tris, iso_level);
+
+    return vector<Triangle>(tris, tris + n);
+}
+
+vector<Triangle> run_task(double (*func)(double, double, double), double x_min, double y_min, double z_min,
+                          double x_max, double y_max, double z_max, double precision, double iso_level = 0.0) {
+    vector<Triangle> final_triangles;
+
+#pragma omp parallel
+    {
+#pragma omp single
+        {
+            final_triangles = adaptive_marching_cubes(func, x_min, y_min, z_min, x_max, y_max, z_max, precision, iso_level);
+        }
+    }
+
+    return final_triangles;
 }
 
 void draw_surface(double (*func)(double, double, double), const string &output_filename,
@@ -223,8 +275,8 @@ void draw_surface(double (*func)(double, double, double), const string &output_f
 #pragma omp parallel
     {
 #pragma omp single
-        adaptive_marching_cubes(func, triangles, x_min, y_min, z_min,
-                                x_max, y_max, z_max, precision, iso_level);
+        triangles = adaptive_marching_cubes(func, x_min, y_min, z_min,
+                                            x_max, y_max, z_max, precision, iso_level);
     }
 
     // Write triangles to PLY file
@@ -270,11 +322,11 @@ double height_map_2d(double x, double y, double z) {
     return noise(x, y) - z;
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
     cout << "Recursive Non-Adaptive Marching Cubes Implementation" << endl;
-    
-    int n = 512; // default value
-    
+
+    int n = 512;  // default value
+
     // parse n value
     if (argc > 1) {
         n = atoi(argv[1]);
@@ -285,20 +337,20 @@ int main(int argc, char* argv[]) {
             return 1;
         }
     }
-    
+
     double precision = 10.0 / n;
     cout << "Using n = " << n << endl;
     cout << "Con precision: " << precision << endl;
     int threads[] = {1, 2, 4, 8, 16, 32, 64, 128};
     for (int t = 0; t < 8; t++) {
         omp_set_num_threads(threads[t]);
-        double t_f;
         double t_0 = omp_get_wtime();
         vector<Triangle> triangles;
-        adaptive_marching_cubes(height_map_2d, triangles, -5, -5, -5, 5, 5, 5, precision);
-        t_f = omp_get_wtime() - t_0;
+
+        triangles = run_task(height_map_2d, -5, -5, -5, 5, 5, 5, precision);
+
+        double t_f = omp_get_wtime() - t_0;
         cout << "Con " << threads[t] << " threads, tiempo: " << t_f << endl;
     }
-
     return 0;
 }
