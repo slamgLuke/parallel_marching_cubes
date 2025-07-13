@@ -5,6 +5,7 @@
 *.d
 
 # Compiled Object files
+venv/
 *.slo
 *.lo
 *.o
